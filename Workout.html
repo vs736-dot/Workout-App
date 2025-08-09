@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Parent Workout Log</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#2563eb" />
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%232563eb'/%3E%3Cpath d='M18 36h-4v-8h4v-4h6v16h-6v-4zm32 0h-4v4h-6V24h6v4h4v8zm-18 6h-2c-3 0-5-2-5-5V27c0-3 2-5 5-5h2c3 0 5 2 5 5v10c0 3-2 5-5 5z' fill='white'/%3E%3C/svg%3E" />
+  <!-- Chart.js for graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-vX3Ww4e2F1w5F4n1P8aYwq5m3N1F1lOQ5K4cS6q6J7" crossorigin="anonymous"></script>
+  <style>
+    :root{
+      --bg:#f7f7fb; --card:#ffffff; --text:#1f2937; --muted:#6b7280; --accent:#2563eb;
+      --ok:#059669; --warn:#d97706; --danger:#dc2626; --border:#e5e7eb;
+    }
+    *{box-sizing:border-box}
+    body{ margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Helvetica Neue',Arial;
+      background:var(--bg); color:var(--text); line-height:1.4; }
+    header{ position:sticky; top:0; z-index:10; background:var(--card); border-bottom:1px solid var(--border);
+      padding:12px 16px; display:flex; gap:12px; align-items:center; justify-content:space-between; }
+    h1{font-size:1.25rem; margin:0}
+    nav{display:flex; gap:8px; flex-wrap:wrap}
+    button, input, select, textarea{ font-size:1rem; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#fff; color:var(--text); }
+    button{cursor:pointer; border:0; background:var(--accent); color:#fff; font-weight:600}
+    button.ghost{background:#fff; color:var(--text); border:1px solid var(--border)}
+    button.warn{background:var(--warn); color:#fff}
+    button.danger{background:var(--danger)}
+    main{max-width:1100px; margin:16px auto; padding:0 12px; display:grid; gap:16px}
+    .card{ background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; box-shadow:0 1px 0 rgba(0,0,0,0.02); }
+    .row{display:grid; gap:10px}
+    @media(min-width:800px){ .row{grid-template-columns:1fr 1fr} }
+    .exercise{ border:1px dashed var(--border); border-radius:12px; padding:12px; margin-top:10px; background:#fafafa; }
+    .exercise header{display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; border:0; padding:0; background:transparent}
+    .sets{display:grid; gap:8px; margin-top:8px}
+    .set-row{display:grid; grid-template-columns:90px 1fr 1fr auto; gap:8px; align-items:center}
+    .set-row input{width:100%}
+    .muted{color:var(--muted); font-size:.95rem}
+    .grid-3{display:grid; gap:10px}
+    @media(min-width:900px){ .grid-3{grid-template-columns:1fr 1fr 1fr} }
+    table{width:100%; border-collapse:collapse; font-size:0.95rem}
+    th,td{border-bottom:1px solid var(--border); padding:10px; text-align:left; vertical-align:top}
+    tr:hover td{background:#fafafa}
+    .right{text-align:right}
+    .stack-sm{display:flex; gap:8px; flex-wrap:wrap}
+    .footer-tip{font-size:.9rem; color:var(--muted)}
+    .chip{display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:.85rem; margin-left:6px}
+    .sr-only{position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden;}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Parent Workout Log <span class="chip">offline • PWA</span></h1>
+  <nav>
+    <button class="ghost" id="tab-log">New Workout</button>
+    <button class="ghost" id="tab-history">Past Workouts</button>
+    <button class="ghost" id="tab-charts">Progress</button>
+  </nav>
+</header>
+
+<main>
+  <!-- NEW WORKOUT -->
+  <section id="view-log" class="card" aria-labelledby="h-log">
+    <h2 id="h-log">Log today’s workout</h2>
+    <div class="grid-3">
+      <label> Date
+        <input type="date" id="w-date" />
+      </label>
+      <label> Start Time (optional)
+        <input type="time" id="w-start" />
+      </label>
+      <label> Workout Duration (minutes)
+        <input type="number" id="w-duration" min="0" step="1" inputmode="numeric" placeholder="e.g., 35" />
+      </label>
+    </div>
+
+    <p class="muted" style="margin-top:6px">Add up to 5 exercises. For each set, enter the weight (lb) and reps.</p>
+
+    <div id="exercise-list"></div>
+
+    <div class="stack-sm" style="margin-top:12px">
+      <button type="button" id="add-ex" class="">+ Add Exercise</button>
+      <button type="button" id="save" title="Save this workout">Save Workout</button>
+      <button type="button" id="clear-form" class="ghost">Clear Form</button>
+    </div>
+
+    <p class="footer-tip">Tip: For bodyweight moves, leave weight blank and just log reps.</p>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="view-history" class="card" aria-labelledby="h-history" hidden>
+    <h2 id="h-history">Past workouts</h2>
+    <div class="stack-sm" style="margin-bottom:8px">
+      <button class="ghost" id="export-csv">Download CSV</button>
+      <button class="ghost" id="export-json">Export Backup</button>
+      <label class="stack-sm">
+        <input type="file" id="import-json" accept="application/json" />
+      </label>
+      <button class="warn" id="share-latest">Share Latest</button>
+      <button class="danger" id="wipe-all" title="Delete all data">Delete All</button>
+    </div>
+    <div style="overflow:auto">
+      <table id="history-table" aria-describedby="history-help">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Duration</th>
+            <th>Exercises (sets)</th>
+            <th class="right">Volume (lb)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="history-help" class="muted" style="margin-top:6px">Click “View” to see full details for a workout. “Edit” loads it back into the form.</div>
+    </div>
+  </section>
+
+  <!-- CHARTS -->
+  <section id="view-charts" class="card" aria-labelledby="h-charts" hidden>
+    <h2 id="h-charts">Progress charts</h2>
+    <div class="row">
+      <div>
+        <label>Choose exercise to chart
+          <select id="chart-exercise"></select>
+        </label>
+        <p class="muted">Shows max weight (lb) and max reps per workout for the selected exercise.</p>
+      </div>
+      <div class="stack-sm" style="align-items:end">
+        <button class="ghost" id="refresh-charts">Refresh</button>
+      </div>
+    </div>
+    <div class="card" style="padding:10px; margin-top:10px">
+      <canvas id="weightChart" height="220" aria-label="Weight over time"></canvas>
+    </div>
+    <div class="card" style="padding:10px">
+      <canvas id="repChart" height="220" aria-label="Reps over time"></canvas>
+    </div>
+  </section>
+</main>
+
+<!-- SHARE MODAL -->
+<div id="share-modal" hidden class="card" style="max-width:700px; margin:10px auto">
+  <h3>Share this workout</h3>
+  <textarea id="share-text" rows="8" style="width:100%"></textarea>
+  <div class="stack-sm" style="margin-top:8px">
+    <button id="copy-share" class="">Copy</button>
+    <button id="email-share" class="ghost">Email</button>
+    <button id="native-share" class="ghost">Share…</button>
+    <button id="close-share" class="ghost">Close</button>
+  </div>
+</div>
+
+<script>
+/* ----------------- Utilities ----------------- */
+const $ = (q, el=document)=>el.querySelector(q);
+const $$ = (q, el=document)=>Array.from(el.querySelectorAll(q));
+const STORAGE_KEY = 'parentWorkout.v2.lb'; // new key for lb version
+
+function todayISO(){
+  const d = new Date();
+  const tz = new Date(d.getTime() - d.getTimezoneOffset()*60000);
+  return tz.toISOString().slice(0,10);
+}
+function toNumber(v){ const n = Number(v); return Number.isFinite(n)? n : null; }
+function fmtDate(s){
+  if(!s) return '';
+  const d = new Date(s); if (isNaN(d)) return s;
+  return d.toLocaleDateString();
+}
+function sum(arr){ return arr.reduce((a,b)=>a+b,0); }
+
+function computeVolume(ex){
+  // Sum of (weight_lb * reps)
+  return sum((ex.sets||[]).map(s => (toNumber(s.weight)||0) * (toNumber(s.reps)||0)));
+}
+
+function workoutToText(w){
+  const lines = [];
+  lines.push(`Workout: ${fmtDate(w.date)}  •  Duration: ${w.duration||0} min`);
+  w.exercises.forEach((ex,i)=>{
+    const name = ex.name || `Exercise ${i+1}`;
+    const detail = (ex.sets||[]).map(s=>{
+      const wt = s.weight!==null && s.weight!=='' ? `${s.weight} lb` : 'BW';
+      const r = s.reps ?? '';
+      return `${wt}×${r}`;
+    }).join(', ');
+    lines.push(`- ${name}: ${detail}`);
+  });
+  const totalVol = sum(w.exercises.map(computeVolume));
+  lines.push(`Total volume: ${Math.round(totalVol)} lb`);
+  return lines.join('\n');
+}
+
+/* ----------------- Data Layer ----------------- */
+function loadAll(){
+  try{ return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  catch{ return []; }
+}
+function saveAll(list){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+}
+function upsertWorkout(w){
+  const list = loadAll();
+  if (w.id){
+    const idx = list.findIndex(x=>x.id===w.id);
+    if (idx>=0) list[idx]=w; else list.push(w);
+  } else {
+    w.id = crypto.randomUUID();
+    list.push(w);
+  }
+  saveAll(list);
+  return w.id;
+}
+function deleteWorkout(id){
+  const list = loadAll().filter(w=>w.id!==id);
+  saveAll(list);
+}
+
+/* ----------------- Form (New Workout) ----------------- */
+const exerciseMax = 5;
+const exListEl = $('#exercise-list');
+let editId = null;
+
+function createExerciseBlock(index){
+  const wrap = document.createElement('div');
+  wrap.className = 'exercise';
+  wrap.dataset.index = index;
+
+  wrap.innerHTML = `
+    <header>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+        <strong>Exercise ${index+1}</strong>
+        <input type="text" placeholder="e.g., Squat" class="ex-name" aria-label="Exercise name">
+      </div>
+      <div class="stack-sm">
+        <button type="button" class="ghost add-set">+ Set</button>
+        <button type="button" class="ghost remove-ex">Remove</button>
+      </div>
+    </header>
+    <div class="sets"></div>
+  `;
+  const setsEl = $('.sets', wrap);
+  for (let i=0;i<3;i++) setsEl.appendChild(createSetRow(i));
+
+  wrap.addEventListener('click', (e)=>{
+    if (e.target.classList.contains('add-set')){
+      const count = $$('.set-row', setsEl).length;
+      setsEl.appendChild(createSetRow(count));
+    }
+    if (e.target.classList.contains('remove-ex')){
+      wrap.remove();
+      renumberExercises();
+      limitAddButton();
+    }
+    if (e.target.classList.contains('remove-set')){
+      e.target.closest('.set-row').remove();
+      renumberSets(setsEl);
+    }
+  });
+  return wrap;
+}
+
+function createSetRow(i){
+  const row = document.createElement('div');
+  row.className = 'set-row';
+  row.innerHTML = `
+    <div class="muted">Set ${i+1}</div>
+    <input type="number" step="1" inputmode="decimal" placeholder="Weight (lb)" aria-label="Weight (lb)" class="set-weight">
+    <input type="number" step="1" inputmode="numeric" placeholder="Reps" aria-label="Reps" class="set-reps">
+    <button type="button" class="ghost remove-set">✕</button>
+  `;
+  return row;
+}
+function renumberSets(container){
+  $$('.set-row', container).forEach((r,idx)=>{ $('.muted', r).textContent = `Set ${idx+1}`; });
+}
+function renumberExercises(){
+  $$('.exercise', exListEl).forEach((ex,idx)=>{
+    ex.dataset.index = idx;
+    $('strong', ex).textContent = `Exercise ${idx+1}`;
+  });
+}
+
+function readForm(){
+  const date = $('#w-date').value || todayISO();
+  const duration = toNumber($('#w-duration').value) ?? 0;
+  const start = $('#w-start').value || null;
+
+  const exercises = $$('.exercise', exListEl).map(ex=>{
+    const name = $('.ex-name', ex).value.trim();
+    const sets = $$('.set-row', ex).map(r=>({
+      weight: toNumber($('.set-weight', r).value),
+      reps: toNumber($('.set-reps', r).value),
+    })).filter(s => s.weight!==null || s.reps!==null);
+    return { name, sets };
+  }).filter(e => e.name || e.sets.length);
+
+  if (exercises.length===0) throw new Error('Please add at least one exercise.');
+  return { id: editId || null, date, start, duration, exercises };
+}
+
+function writeForm(w){
+  $('#w-date').value = w.date || todayISO();
+  $('#w-start').value = w.start || '';
+  $('#w-duration').value = w.duration ?? '';
+  exListEl.innerHTML = '';
+  (w.exercises||[]).slice(0,exerciseMax).forEach((ex, i)=>{
+    const block = createExerciseBlock(i);
+    $('.ex-name', block).value = ex.name || '';
+    const setsEl = $('.sets', block);
+    setsEl.innerHTML = '';
+    (ex.sets||[]).forEach((s, j)=>{
+      const r = createSetRow(j);
+      $('.set-weight', r).value = s.weight ?? '';
+      $('.set-reps', r).value = s.reps ?? '';
+      setsEl.appendChild(r);
+    });
+    exListEl.appendChild(block);
+  });
+  limitAddButton();
+}
+
+function clearForm(){
+  editId = null;
+  $('#w-date').value = todayISO();
+  $('#w-start').value = '';
+  $('#w-duration').value = '';
+  exListEl.innerHTML = '';
+  for(let i=0;i<2;i++) exListEl.appendChild(createExerciseBlock(i));
+  limitAddButton();
+}
+
+function limitAddButton(){
+  const count = $$('.exercise', exListEl).length;
+  $('#add-ex').disabled = count >= exerciseMax;
+}
+
+/* ----------------- History Table ----------------- */
+function refreshHistory(){
+  const tbody = $('#history-table tbody'); tbody.innerHTML = '';
+  const list = loadAll().sort((a,b)=> (a.date||'').localeCompare(b.date||'')); // ascending
+  list.forEach(w=>{
+    const tr = document.createElement('tr');
+    const flat = w.exercises.map(e => `${e.name||'Exercise'} (${e.sets.length})`).join(', ');
+    const vol = sum(w.exercises.map(computeVolume));
+    tr.innerHTML = `
+      <td>${fmtDate(w.date)}</td>
+      <td>${w.duration||0} min</td>
+      <td>${flat}</td>
+      <td class="right">${Math.round(vol)}</td>
+      <td class="right">
+        <div class="stack-sm" style="justify-content:flex-end">
+          <button class="ghost view" data-id="${w.id}">View</button>
+          <button class="ghost edit" data-id="${w.id}">Edit</button>
+          <button class="ghost danger del" data-id="${w.id}">Delete</button>
+          <button class="ghost share" data-id="${w.id}">Share</button>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  tbody.addEventListener('click', (e)=>{
+    const id = e.target.dataset.id;
+    if (!id) return;
+    const list = loadAll();
+    const w = list.find(x=>x.id===id);
+    if (!w) return;
+
+    if (e.target.classList.contains('view')){
+      alert(workoutToText(w));
+    }
+    if (e.target.classList.contains('edit')){
+      editId = w.id;
+      switchTab('log');
+      writeForm(w);
+      window.scrollTo({top:0, behavior:'smooth'});
+    }
+    if (e.target.classList.contains('del')){
+      if (confirm('Delete this workout?')){ deleteWorkout(id); refreshHistory(); refreshExerciseChoices(); drawCharts(); }
+    }
+    if (e.target.classList.contains('share')){
+      openShare(workoutToText(w));
+    }
+  }, {once:true}); // reattach on refresh
+}
+
+/* ----------------- Charts ----------------- */
+let weightChart, repChart;
+
+function uniqueExerciseNames(){
+  const names = new Set();
+  loadAll().forEach(w=>{
+    (w.exercises||[]).forEach(e=>{
+      const n = (e.name||'').trim();
+      if (n) names.add(n);
+    });
+  });
+  return Array.from(names).sort((a,b)=>a.localeCompare(b));
+}
+
+function refreshExerciseChoices(){
+  const sel = $('#chart-exercise');
+  const current = sel.value;
+  const names = uniqueExerciseNames();
+  sel.innerHTML = names.length ? names.map(n=>`<option>${n}</option>`).join('') : `<option value="">(no data yet)</option>`;
+  if (names.includes(current)) sel.value = current;
+}
+
+function getSeriesForExercise(name){
+  const list = loadAll().slice().sort((a,b)=> (a.date||'').localeCompare(b.date||''));
+  const labels = [], maxWeight = [], maxReps = [];
+  list.forEach(w=>{
+    const ex = (w.exercises||[]).find(e => (e.name||'').trim().toLowerCase() === name.toLowerCase());
+    if (!ex) return;
+    labels.push(fmtDate(w.date));
+    const weights = ex.sets.map(s => toNumber(s.weight) ?? 0);
+    const reps = ex.sets.map(s => toNumber(s.reps) ?? 0);
+    maxWeight.push(weights.length? Math.max(...weights) : 0);
+    maxReps.push(reps.length? Math.max(...reps) : 0);
+  });
+  return {labels, maxWeight, maxReps};
+}
+
+function makeLine(ctx, labels, data, label){
+  return new Chart(ctx, {
+    type:'line',
+    data:{ labels, datasets:[{ label, data, tension:0.25, pointRadius:3 }]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ ticks:{autoSkip:true,maxRotation:0}, grid:{display:false} } },
+      plugins:{ legend:{display:true}, tooltip:{enabled:true} }
+    }
+  });
+}
+
+function drawCharts(){
+  const name = $('#chart-exercise').value;
+  if (!name){ return; }
+  const {labels, maxWeight, maxReps} = getSeriesForExercise(name);
+
+  if (weightChart){ weightChart.destroy(); }
+  if (repChart){ repChart.destroy(); }
+
+  weightChart = makeLine($('#weightChart'), labels, maxWeight, `${name}: Max Weight (lb)`);
+  repChart = makeLine($('#repChart'), labels, maxReps, `${name}: Max Reps`);
+}
+
+/* ----------------- Sharing ----------------- */
+function openShare(text){
+  $('#share-text').value = text;
+  $('#share-modal').hidden = false;
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function closeShare(){ $('#share-modal').hidden = true; }
+
+$('#copy-share').addEventListener('click', async ()=>{
+  const t = $('#share-text').value;
+  try{ await navigator.clipboard.writeText(t); alert('Copied!'); } catch{ alert('Copy failed. You can select and copy manually.'); }
+});
+$('#email-share').addEventListener('click', ()=>{
+  const body = encodeURIComponent($('#share-text').value);
+  const subj = encodeURIComponent('Workout Log');
+  window.location.href = `mailto:?subject=${subj}&body=${body}`;
+});
+$('#native-share').addEventListener('click', async ()=>{
+  const t = $('#share-text').value;
+  if (navigator.share){
+    try{ await navigator.share({text:t}); } catch(e){}
+  } else {
+    alert('Native Share not available on this device. Use Copy or Email.');
+  }
+});
+$('#close-share').addEventListener('click', closeShare);
+
+/* ----------------- Export / Import ----------------- */
+function toCSV(){
+  const rows = [['id','date','duration_min','exercise','set_index','weight_lb','reps','volume_lb']];
+  loadAll().forEach(w=>{
+    (w.exercises||[]).forEach(ex=>{
+      (ex.sets||[]).forEach((s,idx)=>{
+        const vol = (toNumber(s.weight)||0)*(toNumber(s.reps)||0);
+        rows.push([w.id, w.date, w.duration||0, (ex.name||'').replaceAll(',',';'), idx+1, s.weight??'', s.reps??'', vol]);
+      });
+    });
+  });
+  return rows.map(r => r.join(',')).join('\n');
+}
+function download(filename, text){
+  const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  setTimeout(()=> URL.revokeObjectURL(url), 5000);
+}
+
+/* ----------------- Tabs ----------------- */
+function switchTab(name){
+  $('#view-log').hidden = name!=='log';
+  $('#view-history').hidden = name!=='history';
+  $('#view-charts').hidden = name!=='charts';
+  $('#tab-log').classList.toggle('ghost', name!=='log');
+  $('#tab-history').classList.toggle('ghost', name!=='history');
+  $('#tab-charts').classList.toggle('ghost', name!=='charts');
+}
+$('#tab-log').addEventListener('click', ()=>switchTab('log'));
+$('#tab-history').addEventListener('click', ()=>{ refreshHistory(); switchTab('history'); });
+$('#tab-charts').addEventListener('click', ()=>{ refreshExerciseChoices(); drawCharts(); switchTab('charts'); });
+
+/* ----------------- Event Hooks ----------------- */
+$('#add-ex').addEventListener('click', ()=>{
+  const count = $$('.exercise', exListEl).length;
+  if (count>=exerciseMax) return;
+  exListEl.appendChild(createExerciseBlock(count));
+  limitAddButton();
+});
+
+$('#save').addEventListener('click', ()=>{
+  try{
+    const w = readForm();
+    upsertWorkout(w);
+    alert('Saved!');
+    clearForm();
+    refreshExerciseChoices();
+    refreshHistory();
+  }catch(e){ alert(e.message || 'Please complete required fields.'); }
+});
+
+$('#clear-form').addEventListener('click', clearForm);
+
+$('#export-csv').addEventListener('click', ()=>{ download('workouts.csv', toCSV()); });
+$('#export-json').addEventListener('click', ()=>{ download('workouts-backup.json', JSON.stringify(loadAll(), null, 2)); });
+
+$('#import-json').addEventListener('change', async (e)=>{
+  const f = e.target.files?.[0]; if (!f) return;
+  const text = await f.text();
+  try{
+    const data = JSON.parse(text);
+    if (!Array.isArray(data)) throw new Error('Invalid file.');
+    saveAll(data);
+    alert('Imported!');
+    refreshHistory(); refreshExerciseChoices(); drawCharts();
+  }catch{ alert('Import failed.'); }
+  e.target.value = '';
+});
+
+$('#refresh-charts').addEventListener('click', ()=>{ refreshExerciseChoices(); drawCharts(); });
+
+$('#share-latest').addEventListener('click', ()=>{
+  const list = loadAll().sort((a,b)=>(b.date||'').localeCompare(a.date||'')); // latest first
+  if (!list.length){ alert('No workouts yet.'); return; }
+  openShare(workoutToText(list[0]));
+});
+
+$('#wipe-all').addEventListener('click', ()=>{
+  if (confirm('Delete ALL saved workouts from this browser?')){
+    localStorage.removeItem(STORAGE_KEY);
+    clearForm(); refreshHistory(); refreshExerciseChoices(); drawCharts();
+  }
+});
+
+/* ----------------- Init ----------------- */
+(function init(){
+  clearForm();
+  $('#w-date').value = todayISO();
+  refreshHistory();
+  refreshExerciseChoices();
+
+  // Register service worker for PWA
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js');
+    });
+  }
+})();
+</script>
+</body>
+</html>
