@@ -8,7 +8,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%232563eb'/%3E%3Cpath d='M18 36h-4v-8h4v-4h6v16h-6v-4zm32 0h-4v4h-6V24h6v4h4v8zm-18 6h-2c-3 0-5-2-5-5V27c0-3 2-5 5-5h2c3 0 5 2 5 5v10c0 3-2 5-5 5z' fill='white'/%3E%3C/svg%3E" />
   <!-- Chart.js for graphs -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-vX3Ww4e2F1w5F4n1P8aYwq5m3N1F1lOQ5K4cS6q6J7" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <style>
     :root{
       --bg:#f7f7fb; --card:#ffffff; --text:#1f2937; --muted:#6b7280; --accent:#2563eb;
@@ -23,7 +23,7 @@
     nav{display:flex; gap:8px; flex-wrap:wrap}
     button, input, select, textarea{ font-size:1rem; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#fff; color:var(--text); }
     button{cursor:pointer; border:0; background:var(--accent); color:#fff; font-weight:600}
-    button.ghost{background:#fff; color:var(--text); border:1px solid var(--border)}
+    button.ghost{background:#fff; color:#1f2937; border:1px solid var(--border)}
     button.warn{background:var(--warn); color:#fff}
     button.danger{background:var(--danger)}
     main{max-width:1100px; margin:16px auto; padding:0 12px; display:grid; gap:16px}
@@ -34,7 +34,7 @@
     .exercise header{display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; border:0; padding:0; background:transparent}
     .sets{display:grid; gap:8px; margin-top:8px}
     .set-row{display:grid; grid-template-columns:90px 1fr 1fr auto; gap:8px; align-items:center}
-    .set-row input{width:100%}
+    .set-row select, .set-row input{width:100%}
     .muted{color:var(--muted); font-size:.95rem}
     .grid-3{display:grid; gap:10px}
     @media(min-width:900px){ .grid-3{grid-template-columns:1fr 1fr 1fr} }
@@ -45,7 +45,8 @@
     .stack-sm{display:flex; gap:8px; flex-wrap:wrap}
     .footer-tip{font-size:.9rem; color:var(--muted)}
     .chip{display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:.85rem; margin-left:6px}
-    .sr-only{position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden;}
+    .custom-wrap{display:flex; gap:8px; margin-top:8px}
+    .hidden{display:none !important;}
   </style>
 </head>
 <body>
@@ -74,7 +75,9 @@
       </label>
     </div>
 
-    <p class="muted" style="margin-top:6px">Add up to 5 exercises. For each set, enter the weight (lb) and reps.</p>
+    <p class="muted" style="margin-top:6px">
+      Up to 5 exercises. For each set, pick a weight (lb) and reps.
+    </p>
 
     <div id="exercise-list"></div>
 
@@ -84,7 +87,7 @@
       <button type="button" id="clear-form" class="ghost">Clear Form</button>
     </div>
 
-    <p class="footer-tip">Tip: For bodyweight moves, leave weight blank and just log reps.</p>
+    <p class="footer-tip">Tip: For bodyweight moves, leave weight blank (“—”) and just log reps.</p>
   </section>
 
   <!-- HISTORY -->
@@ -152,10 +155,23 @@
 </div>
 
 <script>
-/* ----------------- Utilities ----------------- */
-const $ = (q, el=document)=>el.querySelector(q);
+/* ----------------- Utilities & Constants ----------------- */
+const $  = (q, el=document)=>el.querySelector(q);
 const $$ = (q, el=document)=>Array.from(el.querySelectorAll(q));
-const STORAGE_KEY = 'parentWorkout.v2.lb'; // new key for lb version
+const STORAGE_KEY = 'parentWorkout.v2.lb';
+const PRESET_KEY  = 'parentWorkout.presets.lb';
+
+const DEFAULT_PRESETS = [
+  "Chest Press",
+  "Shoulder Press",
+  "Single-Arm Row",
+  "Overhead Tricep Extension",
+  "Bicep Curl",
+  "Squat"
+];
+
+const WEIGHT_OPTIONS = ["", 5,10,15,20,25]; // "" = bodyweight/none
+const REP_OPTIONS = Array.from({length:15}, (_,i)=> i+1);
 
 function todayISO(){
   const d = new Date();
@@ -170,11 +186,35 @@ function fmtDate(s){
 }
 function sum(arr){ return arr.reduce((a,b)=>a+b,0); }
 
-function computeVolume(ex){
-  // Sum of (weight_lb * reps)
-  return sum((ex.sets||[]).map(s => (toNumber(s.weight)||0) * (toNumber(s.reps)||0)));
+/* ----------------- Preset Management ----------------- */
+function loadPresets(){
+  try{
+    const raw = JSON.parse(localStorage.getItem(PRESET_KEY) || '[]');
+    const merged = Array.from(new Set([...DEFAULT_PRESETS, ...raw])).filter(Boolean);
+    return merged;
+  }catch{
+    return DEFAULT_PRESETS.slice();
+  }
+}
+function savePresets(list){
+  const customOnly = list.filter(p => !DEFAULT_PRESETS.map(x=>x.toLowerCase()).includes(p.toLowerCase()));
+  localStorage.setItem(PRESET_KEY, JSON.stringify(customOnly));
+}
+function addPreset(name){
+  const presets = loadPresets();
+  const exists = presets.some(p => p.toLowerCase() === name.toLowerCase());
+  if (!exists){
+    presets.push(name);
+    savePresets(presets);
+    refreshExerciseSelectors();
+  }
 }
 
+/* ----------------- Volume & Share ----------------- */
+function computeVolume(ex){
+  // Sum of (weight_lb * reps) across sets
+  return sum((ex.sets||[]).map(s => (toNumber(s.weight)||0) * (toNumber(s.reps)||0)));
+}
 function workoutToText(w){
   const lines = [];
   lines.push(`Workout: ${fmtDate(w.date)}  •  Duration: ${w.duration||0} min`);
@@ -197,9 +237,7 @@ function loadAll(){
   try{ return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
   catch{ return []; }
 }
-function saveAll(list){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-}
+function saveAll(list){ localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); }
 function upsertWorkout(w){
   const list = loadAll();
   if (w.id){
@@ -213,36 +251,100 @@ function upsertWorkout(w){
   return w.id;
 }
 function deleteWorkout(id){
-  const list = loadAll().filter(w=>w.id!==id);
-  saveAll(list);
+  saveAll(loadAll().filter(w=>w.id!==id));
 }
 
-/* ----------------- Form (New Workout) ----------------- */
-const exerciseMax = 5;
+/* ----------------- UI Builders ----------------- */
+const exerciseMax = 8;
 const exListEl = $('#exercise-list');
 let editId = null;
+
+function makeExerciseSelect(){
+  const sel = document.createElement('select');
+  sel.className = 'ex-select';
+  sel.setAttribute('aria-label','Exercise');
+  const presets = loadPresets();
+  sel.innerHTML = [
+    `<option value="" disabled selected>Select exercise…</option>`,
+    ...presets.map(p => `<option value="${p}">${p}</option>`),
+    `<option value="__custom__">Custom…</option>`
+  ].join('');
+  return sel;
+}
+
+function makeWeightSelect(){
+  const sel = document.createElement('select');
+  sel.className = 'set-weight';
+  sel.setAttribute('aria-label','Weight (lb)');
+  sel.innerHTML = WEIGHT_OPTIONS.map(v => {
+    if (v === "") return `<option value="">—</option>`;
+    return `<option value="${v}">${v} lb</option>`;
+  }).join('');
+  return sel;
+}
+
+function makeRepsSelect(){
+  const sel = document.createElement('select');
+  sel.className = 'set-reps';
+  sel.setAttribute('aria-label','Reps');
+  sel.innerHTML = [`<option value="" disabled selected>Reps</option>`]
+    .concat(REP_OPTIONS.map(v=>`<option value="${v}">${v}</option>`))
+    .join('');
+  return sel;
+}
+
+function createSetRow(i){
+  const row = document.createElement('div');
+  row.className = 'set-row';
+  row.innerHTML = `<div class="muted">Set ${i+1}</div>`;
+  row.appendChild(makeWeightSelect());
+  row.appendChild(makeRepsSelect());
+  const del = document.createElement('button');
+  del.type = 'button'; del.className='ghost remove-set'; del.textContent='✕';
+  row.appendChild(del);
+  return row;
+}
+
+function buildCustomControls(){
+  const wrap = document.createElement('div');
+  wrap.className = 'custom-wrap hidden';
+  wrap.innerHTML = `
+    <input type="text" class="custom-name" placeholder="Type exercise name" aria-label="Custom exercise name">
+    <button type="button" class="ghost save-preset">Save as preset</button>
+  `;
+  return wrap;
+}
 
 function createExerciseBlock(index){
   const wrap = document.createElement('div');
   wrap.className = 'exercise';
   wrap.dataset.index = index;
 
-  wrap.innerHTML = `
-    <header>
-      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-        <strong>Exercise ${index+1}</strong>
-        <input type="text" placeholder="e.g., Squat" class="ex-name" aria-label="Exercise name">
-      </div>
-      <div class="stack-sm">
-        <button type="button" class="ghost add-set">+ Set</button>
-        <button type="button" class="ghost remove-ex">Remove</button>
-      </div>
-    </header>
-    <div class="sets"></div>
-  `;
-  const setsEl = $('.sets', wrap);
+  const header = document.createElement('header');
+  const left = document.createElement('div');
+  left.style.display='flex'; left.style.gap='8px'; left.style.alignItems='center'; left.style.flexWrap='wrap';
+  const title = document.createElement('strong'); title.textContent = `Exercise ${index+1}`;
+  const exSel = makeExerciseSelect();
+  const customWrap = buildCustomControls();
+
+  left.appendChild(title);
+  left.appendChild(exSel);
+  left.appendChild(customWrap);
+
+  const right = document.createElement('div'); right.className='stack-sm';
+  const addSetBtn = document.createElement('button'); addSetBtn.type='button'; addSetBtn.className='ghost add-set'; addSetBtn.textContent='+ Set';
+  const removeExBtn = document.createElement('button'); removeExBtn.type='button'; removeExBtn.className='ghost remove-ex'; removeExBtn.textContent='Remove';
+  right.appendChild(addSetBtn); right.appendChild(removeExBtn);
+
+  header.appendChild(left); header.appendChild(right);
+
+  const setsEl = document.createElement('div'); setsEl.className='sets';
   for (let i=0;i<3;i++) setsEl.appendChild(createSetRow(i));
 
+  wrap.appendChild(header);
+  wrap.appendChild(setsEl);
+
+  // interactions
   wrap.addEventListener('click', (e)=>{
     if (e.target.classList.contains('add-set')){
       const count = $$('.set-row', setsEl).length;
@@ -257,21 +359,32 @@ function createExerciseBlock(index){
       e.target.closest('.set-row').remove();
       renumberSets(setsEl);
     }
+    if (e.target.classList.contains('save-preset')){
+      const name = $('.custom-name', wrap).value.trim();
+      if (!name){ alert('Type an exercise name first.'); return; }
+      addPreset(name);
+      // set select to the newly saved preset, hide custom box
+      const sel = $('.ex-select', wrap);
+      sel.value = name;
+      $('.custom-wrap', wrap).classList.add('hidden');
+      $('.custom-name', wrap).value = '';
+    }
   });
+
+  // toggle custom input visibility
+  exSel.addEventListener('change', ()=>{
+    const custom = $('.custom-wrap', wrap);
+    if (exSel.value === '__custom__'){
+      custom.classList.remove('hidden');
+      $('.custom-name', wrap).focus();
+    } else {
+      custom.classList.add('hidden');
+    }
+  });
+
   return wrap;
 }
 
-function createSetRow(i){
-  const row = document.createElement('div');
-  row.className = 'set-row';
-  row.innerHTML = `
-    <div class="muted">Set ${i+1}</div>
-    <input type="number" step="1" inputmode="decimal" placeholder="Weight (lb)" aria-label="Weight (lb)" class="set-weight">
-    <input type="number" step="1" inputmode="numeric" placeholder="Reps" aria-label="Reps" class="set-reps">
-    <button type="button" class="ghost remove-set">✕</button>
-  `;
-  return row;
-}
 function renumberSets(container){
   $$('.set-row', container).forEach((r,idx)=>{ $('.muted', r).textContent = `Set ${idx+1}`; });
 }
@@ -281,14 +394,49 @@ function renumberExercises(){
     $('strong', ex).textContent = `Exercise ${idx+1}`;
   });
 }
+function limitAddButton(){
+  const count = $$('.exercise', exListEl).length;
+  $('#add-ex').disabled = count >= exerciseMax;
+}
 
+function refreshExerciseSelectors(){
+  // Update all exercise <select>s with current preset list without dropping current values
+  const presets = loadPresets();
+  $$('.ex-select', exListEl).forEach(sel=>{
+    const current = sel.value;
+    sel.innerHTML = [
+      `<option value="" disabled>Select exercise…</option>`,
+      ...presets.map(p => `<option value="${p}">${p}</option>`),
+      `<option value="__custom__">Custom…</option>`
+    ].join('');
+    // restore value or move to custom with text if needed
+    if (current && presets.some(p => p.toLowerCase()===current.toLowerCase())){
+      sel.value = presets.find(p => p.toLowerCase()===current.toLowerCase());
+    } else if (current && current !== '__custom__' && current !== ''){
+      sel.value = '__custom__';
+      // reveal custom name with current value
+      const wrap = sel.closest('.exercise');
+      $('.custom-wrap', wrap).classList.remove('hidden');
+      $('.custom-name', wrap).value = current;
+    } else {
+      sel.value = '';
+    }
+  });
+}
+
+/* ----------------- Form Read/Write ----------------- */
 function readForm(){
   const date = $('#w-date').value || todayISO();
   const duration = toNumber($('#w-duration').value) ?? 0;
   const start = $('#w-start').value || null;
 
   const exercises = $$('.exercise', exListEl).map(ex=>{
-    const name = $('.ex-name', ex).value.trim();
+    const sel = $('.ex-select', ex);
+    let name = sel.value;
+    if (name === '__custom__'){
+      name = $('.custom-name', ex).value.trim();
+    }
+    name = name || ''; // empty if none
     const sets = $$('.set-row', ex).map(r=>({
       weight: toNumber($('.set-weight', r).value),
       reps: toNumber($('.set-reps', r).value),
@@ -307,13 +455,25 @@ function writeForm(w){
   exListEl.innerHTML = '';
   (w.exercises||[]).slice(0,exerciseMax).forEach((ex, i)=>{
     const block = createExerciseBlock(i);
-    $('.ex-name', block).value = ex.name || '';
+    const sel = $('.ex-select', block);
+    const presets = loadPresets();
+    if (ex.name && presets.some(p => p.toLowerCase()===ex.name.toLowerCase())){
+      sel.value = presets.find(p => p.toLowerCase()===ex.name.toLowerCase());
+    } else if (ex.name){
+      sel.value = '__custom__';
+      $('.custom-wrap', block).classList.remove('hidden');
+      $('.custom-name', block).value = ex.name;
+    }
     const setsEl = $('.sets', block);
     setsEl.innerHTML = '';
     (ex.sets||[]).forEach((s, j)=>{
       const r = createSetRow(j);
-      $('.set-weight', r).value = s.weight ?? '';
-      $('.set-reps', r).value = s.reps ?? '';
+      if (s.weight !== null && s.weight !== undefined && s.weight !== ''){
+        $('.set-weight', r).value = String(s.weight);
+      }
+      if (s.reps !== null && s.reps !== undefined && s.reps !== ''){
+        $('.set-reps', r).value = String(s.reps);
+      }
       setsEl.appendChild(r);
     });
     exListEl.appendChild(block);
@@ -328,12 +488,8 @@ function clearForm(){
   $('#w-duration').value = '';
   exListEl.innerHTML = '';
   for(let i=0;i<2;i++) exListEl.appendChild(createExerciseBlock(i));
+  refreshExerciseSelectors();
   limitAddButton();
-}
-
-function limitAddButton(){
-  const count = $$('.exercise', exListEl).length;
-  $('#add-ex').disabled = count >= exerciseMax;
 }
 
 /* ----------------- History Table ----------------- */
@@ -444,7 +600,7 @@ function drawCharts(){
   if (repChart){ repChart.destroy(); }
 
   weightChart = makeLine($('#weightChart'), labels, maxWeight, `${name}: Max Weight (lb)`);
-  repChart = makeLine($('#repChart'), labels, maxReps, `${name}: Max Reps`);
+  repChart   = makeLine($('#repChart'), labels, maxReps, `${name}: Max Reps`);
 }
 
 /* ----------------- Sharing ----------------- */
@@ -494,7 +650,7 @@ function download(filename, text){
   setTimeout(()=> URL.revokeObjectURL(url), 5000);
 }
 
-/* ----------------- Tabs ----------------- */
+/* ----------------- Tabs & Events ----------------- */
 function switchTab(name){
   $('#view-log').hidden = name!=='log';
   $('#view-history').hidden = name!=='history';
@@ -507,11 +663,11 @@ $('#tab-log').addEventListener('click', ()=>switchTab('log'));
 $('#tab-history').addEventListener('click', ()=>{ refreshHistory(); switchTab('history'); });
 $('#tab-charts').addEventListener('click', ()=>{ refreshExerciseChoices(); drawCharts(); switchTab('charts'); });
 
-/* ----------------- Event Hooks ----------------- */
 $('#add-ex').addEventListener('click', ()=>{
   const count = $$('.exercise', exListEl).length;
   if (count>=exerciseMax) return;
   exListEl.appendChild(createExerciseBlock(count));
+  refreshExerciseSelectors();
   limitAddButton();
 });
 
@@ -576,3 +732,4 @@ $('#wipe-all').addEventListener('click', ()=>{
 </script>
 </body>
 </html>
+
